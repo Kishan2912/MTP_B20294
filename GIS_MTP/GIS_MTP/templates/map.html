@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GIS Map View</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body, html {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+    }
+
+    #map-container {
+        height: 100vh;
+        position: relative;
+        z-index: 0;
+    }
+
+    #map {
+        width: 100%;
+        height: 100%;
+    }
+
+    #chart-container {
+        width: 100%;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        display: none;
+        z-index: 1;
+        background-color: white;
+        height: 300px;
+
+    }
+
+    #precipitationChart {
+        height: 100%; /* Adjust the height as needed */
+    }
+
+    #close-chart-btn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        cursor: pointer;
+        color: white;
+        font-size: 20px;
+        font-weight: bold;
+        background-color: rgba(0, 0, 0, 0.5);
+        border-radius: 10%;
+        width: 53px;
+        height: 30px;
+        padding: 6px 14px 6px 14px;
+    }
+
+    </style>
+  </head>
+  <body>
+<div id="map-container">
+      <div id="map">
+          <!-- The map will be rendered here -->
+      </div>
+  
+    </div>
+    <div id="chart-container">
+        <div id="close-chart-btn" onclick="closeChart()">✖</div>
+        <h2>Precipitation Line Chart</h2>
+        <canvas id="precipitationChart"></canvas>
+    </div>
+
+
+
+    {% comment %} <div>
+      <h2>Precipitation Line Chart</h2>
+      <canvas id="precipitationChart" width="400" height="200"></canvas>
+    </div> {% endcomment %}
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+
+    <script>
+      // Initialize the map
+      var centerLatitude = 28.6139;
+      var centerLongitude = 77.209;
+
+      // Choose an appropriate zoom level to display India
+      var initialZoom = 5; // Adjust the zoom level as needed
+
+      // Initialize the map with the determined center and zoom level
+      var map = L.map("map",
+      {
+        zoomControl: false, // Disable the default zoom control
+        doubleClickZoom: false, // Disable zooming on double-click
+        scrollWheelZoom: false, // Disable zooming using the scroll wheel
+      }
+      ).setView(
+        [centerLatitude, centerLongitude],
+        initialZoom
+      );
+
+      // Add a base layer (e.g., OpenStreetMap)
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      //  for /district-gis-data/
+      function customStyle_district(feature) {
+        return {
+          fillColor: "pink", // Fill color
+          color: "brown", // Stroke color
+          weight: 3, // Stroke width
+        };
+      }
+
+      var geojsonLayerDistrict = L.geoJSON(null, {
+        style: customStyle_district, // Apply the custom style to the GeoJSON layer
+      });
+
+      // Fetch GeoJSON data from your Django view and add it to the map
+      fetch("/district-gis-data/") // Use the URL you defined in your Django URLs
+        .then((response) => response.json())
+        .then((data) => {
+          console.log(data);
+          geojsonLayerDistrict.addData(data);
+          geojsonLayerDistrict.addTo(map);
+        })
+        .catch((error) => {
+          console.error("Error fetching GeoJSON data:", error);
+      });
+
+      // Function to open the precipitation chart
+      function openChart() {
+        document.getElementById('chart-container').style.display = 'block';
+      }
+
+      var currentDistrictChart = null;
+      // Function to close the precipitation chart
+      function closeChart() {
+        document.getElementById('chart-container').style.display = 'none';
+        currentDistrictChart.destroy();
+    }
+
+
+      // add on-click event
+      var isChartVisible = false;
+      geojsonLayerDistrict.on('click', function (e) {
+        
+        if (currentDistrictChart !== null) {
+          currentDistrictChart.destroy();
+        }
+        
+          var districtName = e.layer.feature.properties.distname;  // Replace with your district column name
+          var popup = L.popup({ maxWidth: 300, autoPan: true }); // Set the maximum width of the popup
+
+          // Create a div element for the popup content
+          var popupContent = document.createElement('div');
+          popupContent.innerHTML = '<h3>' + districtName + ' Precipitation Line Plot</h3>';
+          popup.setLatLng(e.latlng);
+          popup.setContent(popupContent);
+          popup.openOn(map);
+
+          // Create a button element for downloading CSV data
+          var downloadButton = document.createElement('button');
+          downloadButton.textContent = 'Download CSV';
+          downloadButton.onclick = downloadDistrictCSVData;  // Attach a click event handler
+
+          // Store the district name in a data attribute for the button
+          downloadButton.setAttribute('data-district', districtName);
+
+          // Add the button to the pop-up content
+          popupContent.appendChild(downloadButton);
+
+          // Fetch precipitation data for the selected district
+          fetch('/get-precipitation/' + districtName + '/')
+          .then(response => response.json())
+          .then(data => {
+              // Use Chart.js to create a line chart
+            currentDistrictChart = createLineChart(data.labels, data.precipitation_data, districtName);
+            openChart();
+
+          })
+          .catch(error => {
+              console.error('Error fetching precipitation data:', error);
+          });
+
+          
+      }
+      );
+
+      function createLineChart(labels, precipitationData, districtName) {
+      
+      
+        {% comment %} var subsetLabels = labels.slice(0, 200);
+        var subsetPrecipitationData = precipitationData.slice(0, 200);
+      
+        console.log("date",subsetLabels);
+        console.log("value",subsetPrecipitationData) {% endcomment %}
+      
+        var ctx = document.getElementById('precipitationChart')
+        var precipitationChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: districtName + ' Precipitation',
+                    borderColor: 'blue',
+                    data: precipitationData,
+                    fill: false,
+                    pointRadius: 5,
+                    pointBackgroundColor: 'blue',
+                    pointHitRadius: 10,
+                    borderColor: 'blue',
+                }],
+            },
+            
+        });
+
+        return precipitationChart;
+      }
+
+      
+      function downloadDistrictCSVData(event) {
+        var districtName = event.target.getAttribute('data-district');
+    
+        // Fetch CSV data for the selected district
+        fetch('/get-precipitation-csv/' + districtName + '/')  // Adjust the URL according to your Django URLs
+            .then(response => response.text())
+            .then(csvData => {
+                // Create a Blob with the CSV data
+                var blob = new Blob([csvData], { type: 'text/csv' });
+    
+                // Create a URL for the Blob
+                var url = window.URL.createObjectURL(blob);
+    
+                // Create an anchor element for downloading
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = districtName + '_precipitation.csv'; // Adjust the filename
+    
+                // Programmatically trigger the download
+                a.click();
+    
+                // Clean up by revoking the URL
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                console.error('Error fetching CSV data:', error);
+            });
+    }
+    </script>
+
+  </body>
+</html>
